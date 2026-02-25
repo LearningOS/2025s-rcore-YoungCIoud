@@ -15,6 +15,7 @@ mod switch;
 mod task;
 
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::MapPermission;
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -153,6 +154,13 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    /// alloc memory to the current task
+    pub fn mmap_current(&self, start_va: usize, end_va: usize, permission: MapPermission) {
+        let mut inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        inner.tasks[cur].memory_set.insert_framed_area(start_va.into(), end_va.into(), permission);
+    }
 }
 
 /// Run the first task in task list.
@@ -201,4 +209,9 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// alloc memory to the current task
+pub fn mmap_current(start_va: usize, end_va: usize, permission: MapPermission) {
+    TASK_MANAGER.mmap_current(start_va, end_va, permission);
 }

@@ -1,5 +1,5 @@
 //! Process management syscalls
-use crate::{mm::{PageTable, PhysAddr, VirtAddr, translated_byte_buffer}, task::{change_program_brk, current_user_token, exit_current_and_run_next, suspend_current_and_run_next}, timer::get_time_us};
+use crate::{config::PAGE_SIZE, mm::{MapPermission, PageTable, PhysAddr, VirtAddr, translated_byte_buffer}, task::{change_program_brk, current_user_token, exit_current_and_run_next, mmap_current, suspend_current_and_run_next}, timer::get_time_us};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -110,9 +110,61 @@ pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
 }
 
 // YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
+pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
     trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
-    -1
+        if len == 0 {
+        return 0;
+    }
+    if len > 1073741824{
+        return -1;
+    }
+    if start % 4096 != 0 {
+        return -1;
+    }
+    if (port & !0x7 != 0) || (port & 0x7 == 0) {
+        return -1;
+    }
+    let mut len = len;
+    if len % 4096 != 0 {
+        len += 4096 - len % 4096;
+    }
+    let vpn_st= start / PAGE_SIZE;
+    let vpn_ed = (start + len) / PAGE_SIZE;
+
+    let page_table = PageTable::from_token(current_user_token());
+    // 检查这些 vpn 有没有被使用
+    for id in vpn_st..vpn_ed {
+        if let Some(pte) = page_table.translate(id.into()) {
+            if pte.is_valid() {
+                return -1;
+            }
+        }
+    }
+
+    // 根据 port 得到权限
+    // 0R 1W 2X
+    let mut permission = MapPermission::U;
+    if (port & 1) != 0 {
+        permission |= MapPermission::R;
+    }
+    if (port & 2) != 0 {
+        permission |= MapPermission::W;
+    }
+    if (port & 3) != 0 {
+        permission |= MapPermission::X;
+    }
+
+    mmap_current(start, start + len, permission);
+    
+    // 检查这些 vpn 是否真的被插入了
+    for id in vpn_st..vpn_ed {
+        if let Some(pte) = page_table.translate(id.into()) {
+            if !pte.is_valid() {
+                return -1;
+            }
+        }
+    }
+    0
 }
 
 // YOUR JOB: Implement munmap.
